@@ -1,5 +1,5 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
-import { Alert, Dimensions, SafeAreaView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Alert, Animated, Dimensions, SafeAreaView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import Icon from "react-native-vector-icons/MaterialIcons"
 import queryString from "query-string"
 import WebView, { WebViewMessageEvent } from "react-native-webview"
@@ -65,7 +65,15 @@ const styles = StyleSheet.create({
     marginTop: 15,
     marginRight: 20,
     fontSize: 13,
-
+  },
+  seekBarBackground: {
+    height: 3,
+    backgroundColor: '#D4D4D4'
+  },
+  seekBarProgress: {
+    height: 3,
+    backgroundColor: '#00DDA8',
+    width: '0%',
   }
 });
 
@@ -81,6 +89,7 @@ const formatTime = (seconds: number) => {
 
 const App = () => {
   const webViewRef = useRef<WebView | null>(null);
+  const seekBarAnimRef = useRef(new Animated.Value(0));
   const [url, setUrl] = useState("")
   const [youTubeId, setYouTubeId] = useState("833WFf1Lpsc") // 실제 비디오 ID로 변경
   const [playing, setPlaying] = useState(false)
@@ -176,8 +185,19 @@ const App = () => {
     }
   }, []);
 
+  //영상 현재 시청 시간
   const durationText = useMemo(() => formatTime(durationInSec), [durationInSec])
   const currentTimeText = useMemo(() => formatTime(currentTime), [currentTime])
+
+
+  // 애니메이션 데이터 연결
+  useEffect(()=> {
+    Animated.timing(seekBarAnimRef.current, {
+      toValue: currentTime,
+      duration: 50,
+      useNativeDriver: false
+    }).start()
+  }, [currentTime])
 
   return (
     <SafeAreaView style={styles.safearea}>
@@ -212,6 +232,14 @@ const App = () => {
             onMessage={handleWebViewMessage}
           /> 
         )}
+      </View>
+      <View style={styles.seekBarBackground}>
+        <Animated.View style={[styles.seekBarProgress, {
+          width: seekBarAnimRef.current.interpolate({
+            inputRange: [0, durationInSec],
+            outputRange: ['0%', '100%']
+          })
+        }]}/>
       </View>
       <Text style={styles.timeText}>{`${currentTimeText} / ${durationText}`}</Text>
       <View style={styles.controllor}>
