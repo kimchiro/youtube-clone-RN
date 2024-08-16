@@ -1,118 +1,232 @@
-/**
- * Sample React Native App
- * https://github.com/facebook/react-native
- *
- * @format
- */
+import React, { useCallback, useMemo, useRef, useState } from "react";
+import { Alert, Dimensions, SafeAreaView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import Icon from "react-native-vector-icons/MaterialIcons"
+import queryString from "query-string"
+import WebView, { WebViewMessageEvent } from "react-native-webview"
 
-import React from 'react';
-import type {PropsWithChildren} from 'react';
-import {
-  SafeAreaView,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  useColorScheme,
-  View,
-} from 'react-native';
+const YT_WIDTH = Dimensions.get('window').width;
+const YT_HEIGHT = YT_WIDTH * (9 / 16);
 
-import {
-  Colors,
-  DebugInstructions,
-  Header,
-  LearnMoreLinks,
-  ReloadInstructions,
-} from 'react-native/Libraries/NewAppScreen';
-
-type SectionProps = PropsWithChildren<{
-  title: string;
-}>;
-
-function Section({children, title}: SectionProps): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
-  return (
-    <View style={styles.sectionContainer}>
-      <Text
-        style={[
-          styles.sectionTitle,
-          {
-            color: isDarkMode ? Colors.white : Colors.black,
-          },
-        ]}>
-        {title}
-      </Text>
-      <Text
-        style={[
-          styles.sectionDescription,
-          {
-            color: isDarkMode ? Colors.light : Colors.dark,
-          },
-        ]}>
-        {children}
-      </Text>
-    </View>
-  );
+enum PlayerState {
+  UNSTARTED = -1,
+  ENDED = 0,
+  PLAYING = 1,
+  PAUSED = 2,
+  BUFFERING = 3,
+  CUED = 5
 }
 
-function App(): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
-
-  const backgroundStyle = {
-    backgroundColor: isDarkMode ? Colors.darker : Colors.lighter,
-  };
-
-  return (
-    <SafeAreaView style={backgroundStyle}>
-      <StatusBar
-        barStyle={isDarkMode ? 'light-content' : 'dark-content'}
-        backgroundColor={backgroundStyle.backgroundColor}
-      />
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        style={backgroundStyle}>
-        <Header />
-        <View
-          style={{
-            backgroundColor: isDarkMode ? Colors.black : Colors.white,
-          }}>
-          <Section title="Step One">
-            Edit <Text style={styles.highlight}>App.tsx</Text> to change this
-            screen and then come back to see your edits.
-          </Section>
-          <Section title="See Your Changes">
-            <ReloadInstructions />
-          </Section>
-          <Section title="Debug">
-            <DebugInstructions />
-          </Section>
-          <Section title="Learn More">
-            Read the docs to discover what to do next:
-          </Section>
-          <LearnMoreLinks />
-        </View>
-      </ScrollView>
-    </SafeAreaView>
-  );
-}
 
 const styles = StyleSheet.create({
-  sectionContainer: {
-    marginTop: 32,
-    paddingHorizontal: 24,
+  safearea: { flex: 1, backgroundColor: '#242424'},
+  input: { 
+    fontSize: 15,
+    color: "AEAEB2",
+    paddingVertical: 0, 
+    flex: 1,
+    marginRight: 4,
   },
-  sectionTitle: {
-    fontSize: 24,
-    fontWeight: '600',
+  inputContainer: { 
+    backgroundColor: '#1A1A1A',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginHorizontal: 16,
+    marginVertical: 16,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between'
   },
-  sectionDescription: {
-    marginTop: 8,
-    fontSize: 18,
-    fontWeight: '400',
+  youTubeContainer: {
+    width: YT_WIDTH,
+    height: YT_HEIGHT,
+    backgroundColor: '#4A4A4A',
   },
-  highlight: {
-    fontWeight: '700',
+  controllor: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 10,
+    marginHorizontal: 16,
+    marginTop: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 72,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
   },
+  playButton: {
+    height: 50,
+    width: 50,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  timeText: {
+    color: '#AEAEB2',
+    alignSelf: 'flex-end',
+    marginTop: 15,
+    marginRight: 20,
+    fontSize: 13,
+
+  }
 });
+
+const formatTime = (seconds: number) => {
+  const minutes = Math.floor(seconds / 60)
+  const remainingSeconds = Math.floor(seconds % 60)
+
+  const formattedMinutes = String(minutes).padStart(2, '0')
+  const formattedSeconds = String(remainingSeconds).padStart(2, '0')
+
+  return `${formattedMinutes}:${formattedSeconds}`
+}
+
+const App = () => {
+  const webViewRef = useRef<WebView | null>(null);
+  const [url, setUrl] = useState("")
+  const [youTubeId, setYouTubeId] = useState("833WFf1Lpsc") // 실제 비디오 ID로 변경
+  const [playing, setPlaying] = useState(false)
+  const [durationInSec, setDurationInSec] = useState(0)
+  const [currentTime, setCurrentTime] = useState(0);
+
+  const onPressOpenLink = useCallback(() => {
+    const {query: {v: id}} = queryString.parseUrl(url)
+    console.log('id', id)
+    if(typeof id === 'string') { 
+      setYouTubeId(id)
+    } else {
+      Alert.alert('잘못된 URL 양식입니다.')
+    }
+  }, [url])
+
+  const source = useMemo(() => {
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+        </head>
+        <body style="margin: 0; padding: 0">
+          <div id="player"></div>
+          <script src="https://www.youtube.com/iframe_api"></script>
+          <script>
+            var player;
+            function onYouTubeIframeAPIReady() {
+              player = new YT.Player('player', {
+                height: '${YT_HEIGHT}',
+                width: '${YT_WIDTH}',
+                videoId: '${youTubeId}',
+                events: {
+                  'onReady': onPlayerReady,
+                  'onStateChange': onPlayerStateChange
+                }
+              });
+            }
+
+            function postMessageToRN(type, data) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({type, data}));
+            }
+
+            function onPlayerReady(event) {
+              postMessageToRN('duration', player.getDuration());
+              postMessageToRN('playerReady', true);
+              setInterval(() => {
+                postMessageToRN('currentTime', player.getCurrentTime());
+              }, 1000);
+            }
+
+            function onPlayerStateChange(event) {
+              postMessageToRN('stateChange', event.data);
+            }
+              
+            function playVideo() {
+              player.playVideo();
+            }
+            function pauseVideo() {
+              player.pauseVideo();
+            }
+          </script>
+        </body>
+      </html>
+    `;
+    return { html };
+  }, [youTubeId]);
+
+  const onPressPlay = useCallback(() => {
+    webViewRef.current?.injectJavaScript('playVideo(); true;');
+  }, []);
+
+  const onPressPause = useCallback(() => {
+    webViewRef.current?.injectJavaScript('pauseVideo(); true;');
+  }, []);
+
+  const handleWebViewMessage = useCallback((event: WebViewMessageEvent) => {
+    const { type, data } = JSON.parse(event.nativeEvent.data);
+    switch (type) {
+      case 'stateChange':
+        setPlaying(data === PlayerState.PLAYING);
+        break;
+      case 'duration':
+        setDurationInSec(data);
+        break;
+      case 'currentTime':
+        setCurrentTime(data);
+        break;
+      case 'playerReady':
+        console.log('YouTube player is ready');
+        break;
+    }
+  }, []);
+
+  const durationText = useMemo(() => formatTime(durationInSec), [durationInSec])
+  const currentTimeText = useMemo(() => formatTime(currentTime), [currentTime])
+
+  return (
+    <SafeAreaView style={styles.safearea}>
+      <View style={styles.inputContainer}>
+        <TextInput 
+          style={styles.input}
+          placeholder="클릭하여 링크를 삽입하세요"
+          placeholderTextColor="#AEAEB2"
+          onChangeText={setUrl}
+          value={url}
+          inputMode="url"
+        />
+        <TouchableOpacity 
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          onPress={onPressOpenLink}
+        >
+          <Icon 
+            name="add-link"
+            color='#AEAEB2'
+            size={24}
+          />
+        </TouchableOpacity>
+      </View>
+      <View style={styles.youTubeContainer}>
+        {youTubeId.length > 0 && (
+          <WebView 
+            ref={webViewRef}
+            source={source}
+            scrollEnabled={false}
+            allowsInlineMediaPlayback
+            mediaPlaybackRequiresUserAction={false}
+            onMessage={handleWebViewMessage}
+          /> 
+        )}
+      </View>
+      <Text style={styles.timeText}>{`${currentTimeText} / ${durationText}`}</Text>
+      <View style={styles.controllor}>
+        {playing ? (
+          <TouchableOpacity style={styles.playButton} onPress={onPressPause}>
+            <Icon name="pause-circle" size={41.67} color="#E5E5EA" />
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity style={styles.playButton} onPress={onPressPlay}>
+            <Icon name="play-circle" size={39.58} color="#00DDA8" />
+          </TouchableOpacity>
+        )}
+      </View>
+    </SafeAreaView>
+  )
+}
 
 export default App;
